@@ -49,7 +49,7 @@ This installs the script as a **LaunchAgent** — it starts automatically when y
 **1. Create the logs directory**
 
 ```bash
-mkdir -p ~/codetools/rds_now_playing/logs
+mkdir -p ~/bin/rds_now_playing/logs
 ```
 
 **2. Install the plist**
