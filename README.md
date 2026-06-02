@@ -1,6 +1,6 @@
 # rds_now_playing
 
-Polls the WXDU now-playing endpoint every 10 seconds and pushes the current artist/song to an RDS transmitter over telnet. If the connection drops for any reason, the script waits 60 seconds and reconnects automatically.
+Polls the WXDU now-playing endpoint every 10 seconds and pushes the current artist/song to an RDS transmitter over telnet. If the connection drops for any reason, the script waits 60 seconds and reconnects automatically. [Notes on this project are collected here.](https://docs.google.com/document/d/1epvOxYJUaPP5_70G_gQvbGMNcde6QCwgP7goqMtREHw/edit?tab=t.k7hrccdo67zm)
 
 ## Prerequisites
 
