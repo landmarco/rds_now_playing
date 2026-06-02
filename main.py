@@ -96,6 +96,8 @@ def main():
 
                 if track_changed or keepalive_due:
                     text_rt = text_rt_new
+                    # Telnet exceptions are intentionally NOT caught here — they propagate up
+                    # to the outer except block, which reconnects the telnet connection
                     set_rt(tn, text_rt)
                     last_sent = now
                     if track_changed:
