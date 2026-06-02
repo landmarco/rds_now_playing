@@ -8,12 +8,12 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/YOUR_USERNAME/codetools/rds_now_playing/.venv/bin/python3</string>
-    <string>/Users/YOUR_USERNAME/codetools/rds_now_playing/main.py</string>
+    <string>/Users/computing/bin/rds_now_playing/.venv/bin/python3</string>
+    <string>/Users/computing/bin/rds_now_playing/main.py</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/YOUR_USERNAME/codetools/rds_now_playing</string>
+  <string>/Users/computing/bin/rds_now_playing</string>
 
   <key>KeepAlive</key>
   <true/>
@@ -22,9 +22,9 @@
   <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/YOUR_USERNAME/codetools/rds_now_playing/logs/rds_out.log</string>
+  <string>/Users/computing/bin/rds_now_playing/logs/rds_out.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/YOUR_USERNAME/codetools/rds_now_playing/logs/rds_err.log</string>
+  <string>/Users/computing/bin/rds_now_playing/logs/rds_err.log</string>
 </dict>
 </plist>
