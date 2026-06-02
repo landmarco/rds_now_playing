@@ -1,7 +1,20 @@
 import telnetlib
 import requests
 import time
+import os
+from pathlib import Path
 from unidecode import unidecode
+
+### Credentials
+
+_env = dict(
+    line.strip().split("=", 1)
+    for line in Path(".env").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+)
+RDS_LOGIN = _env["RDS_LOGIN"]
+RDS_PASSWORD = _env["RDS_PASSWORD"]
+
 
 ### Parameters
 
@@ -31,9 +44,9 @@ def main():
             tn = telnetlib.Telnet(tn_host, tn_port)
             tn.set_debuglevel(1000)
             tn.read_until(b"LOGIN:", timeout=30)
-            tn.write(("*******\n").encode('ascii'))
+            tn.write((RDS_LOGIN + "\n").encode('ascii'))
             tn.read_until(b"PASSWORD:", timeout=30)
-            tn.write(("*******\n").encode('ascii'))
+            tn.write((RDS_PASSWORD + "\n").encode('ascii'))
 
 
             ### Update RT

@@ -5,7 +5,7 @@ Polls the WXDU now-playing endpoint every 10 seconds and pushes the current arti
 ## Prerequisites
 
 - macOS (iMac or Mac mini)
-- Python 3 (comes with macOS; verify with `python3 --version`)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Network access to the RDS transmitter at `71.210.6.210:5423`
 
 ## Setup
@@ -20,18 +20,24 @@ cd ~/codetools/rds_now_playing
 **2. Create a virtual environment and install dependencies**
 
 ```bash
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+uv venv
+uv pip install -r requirements.txt
 ```
 
 **3. Add your credentials**
 
-Open `main.py` and replace the two `*******` placeholders on the telnet login lines with the actual login and password for the RDS transmitter.
+Copy the example env file and fill in your credentials:
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` and replace the placeholder values with the actual login and password for the RDS transmitter.
 
 ## Running manually
 
 ```bash
-venv/bin/python3 main.py
+uv run main.py
 ```
 
 Press `Ctrl+C` to stop.
