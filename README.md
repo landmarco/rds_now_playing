@@ -76,6 +76,5 @@ The service starts immediately and will restart on every login/reboot.
 | Check it's running | `launchctl list \| grep wxdu` |
 | View live output | `tail -f ~/bin/rds_now_playing/logs/rds_out.log` |
 | View errors | `tail -f ~/bin/rds_now_playing/logs/rds_err.log` |
-| Stop | `launchctl stop org.wxdu.rds-now-playing` |
-| Start | `launchctl start org.wxdu.rds-now-playing` |
-| Disable permanently | `launchctl unload ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist` |
+| Stop | `launchctl unload ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist` |
+| Start | `launchctl load ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist` |

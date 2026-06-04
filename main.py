@@ -3,6 +3,7 @@ import requests
 import socket
 import time
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path
 from unidecode import unidecode
 
@@ -67,9 +68,8 @@ def main():
             ### Get initial now-playing and establish telnet connection
 
             text_rt = get_now_playing(session)
-            print(text_rt)
-
             tn = connect_telnet()
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Connected. Now playing: {text_rt}", flush=True)
             set_rt(tn, text_rt)
             last_sent = time.monotonic()
             time.sleep(update_time)
@@ -84,7 +84,7 @@ def main():
                 try:
                     text_rt_new = get_now_playing(session)
                 except Exception as e:
-                    print(f"HTTP error: {e}. Retrying next poll...")
+                    print(f"HTTP error: {e}. Retrying next poll...", flush=True)
                     time.sleep(update_time)
                     continue
 
@@ -108,7 +108,7 @@ def main():
                 time.sleep(update_time)  # Wait before next poll
 
         except Exception as e:
-            print(f"Error: {e}. Restarting in {retry_delay}s...")
+            print(f"Error: {e}. Restarting in {retry_delay}s...", flush=True)
             time.sleep(retry_delay)
 
 
