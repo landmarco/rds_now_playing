@@ -18,12 +18,12 @@ _env = dict(
 )
 RDS_LOGIN = _env["RDS_LOGIN"]
 RDS_PASSWORD = _env["RDS_PASSWORD"]
-
+RDS_IP = _env["RDS_IP"]
 
 ### Parameters
 
 update_time = 10         # seconds between now-playing polls
-tn_host = "71.210.6.210" # IP address of the RDS encoder
+tn_host = RDS_IP # IP address of the RDS encoder
 tn_port = 5423           # telnet port on the RDS encoder
 link = "https://wxdu.org/plmanager/world/ajaxnowplaying.php"  # now-playing XML endpoint
 fallback_text = 'A service of the Duke Union and a host of sweetie volunteers'
