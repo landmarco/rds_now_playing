@@ -32,12 +32,33 @@ keepalive_interval = 120 # seconds between forced RT_TEXT resends even if track 
 
 ### Helper functions
 
+def truncate_rt(text):
+    """Truncate to RDS 64-char limit, preserving as much of artist and song as possible."""
+    if len(text) <= 64:
+        return text
+    if " - " not in text:
+        # No artist/song split possible — hard truncate
+        return text[:64]
+    artist, song = text.split(" - ", 1)
+    if len(artist) > 30 and len(song) <= 30:
+        # Long artist, short song — truncate artist to fill remaining space
+        return artist[:58 - len(song)] + "... - " + song
+    elif len(song) > 30 and len(artist) <= 30:
+        # Long song, short artist — truncate song to fill remaining space
+        return artist + " - " + song[:58 - len(artist)] + "..."
+    else:
+        # Both long — artist gets 28 chars, song gets 27 chars (28 + "... - " + 27 + "..." = 64)
+        return artist[:28] + "... - " + song[:27] + "..."
+
+
 def get_now_playing(session):
     """Fetch and parse the now-playing XML endpoint, return ASCII-safe artist/track string."""
     f = session.get(link, timeout=15)
     root = ET.fromstring(f.text)
-    text = ''.join(root.itertext()).strip()  # itertext() handles any XML structure
-    return unidecode(text) or fallback_text  # unidecode converts accented chars to ASCII
+    text = unidecode(''.join(root.itertext()).strip())  # itertext() handles any XML structure
+    if not text:
+        return fallback_text
+    return truncate_rt(text)
 
 
 def connect_telnet():
