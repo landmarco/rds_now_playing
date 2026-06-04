@@ -1,3 +1,4 @@
+import re
 import telnetlib
 import requests
 import socket
@@ -32,6 +33,10 @@ keepalive_interval = 120 # seconds between forced RT_TEXT resends even if track 
 
 ### Helper functions
 
+def ts():
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
 def truncate_rt(text):
     """Truncate to RDS 64-char limit, preserving as much of artist and song as possible."""
     if len(text) <= 64:
@@ -54,7 +59,9 @@ def truncate_rt(text):
 def get_now_playing(session):
     """Fetch and parse the now-playing XML endpoint, return ASCII-safe artist/track string."""
     f = session.get(link, timeout=15)
-    root = ET.fromstring(f.text)
+    # Escape bare & not already part of a valid XML entity (e.g. & in artist names)
+    xml = re.sub(r'&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)', '&amp;', f.text)
+    root = ET.fromstring(xml)
     text = unidecode(''.join(root.itertext()).strip())  # itertext() handles any XML structure
     if not text:
         return fallback_text
@@ -90,7 +97,7 @@ def main():
 
             text_rt = get_now_playing(session)
             tn = connect_telnet()
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Connected. Now playing: {text_rt}", flush=True)
+            print(f"[{ts()}] Connected. Now playing: {text_rt}", flush=True)
             set_rt(tn, text_rt)
             last_sent = time.monotonic()
             time.sleep(update_time)
@@ -105,7 +112,7 @@ def main():
                 try:
                     text_rt_new = get_now_playing(session)
                 except Exception as e:
-                    print(f"HTTP error: {e}. Retrying next poll...", flush=True)
+                    print(f"[{ts()}] HTTP error: {e}. Retrying next poll...", flush=True)
                     time.sleep(update_time)
                     continue
 
@@ -129,7 +136,7 @@ def main():
                 time.sleep(update_time)  # Wait before next poll
 
         except Exception as e:
-            print(f"Error: {e}. Restarting in {retry_delay}s...", flush=True)
+            print(f"[{ts()}] Error: {e}. Restarting in {retry_delay}s...", flush=True)
             time.sleep(retry_delay)
 
 
