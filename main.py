@@ -47,13 +47,13 @@ def truncate_rt(text):
     artist, song = text.split(" - ", 1)
     if len(artist) > 30 and len(song) <= 30:
         # Long artist, short song — truncate artist to fill remaining space
-        return artist[:58 - len(song)] + "... - " + song
+        return artist[:60 - len(song)] + "~ - " + song
     elif len(song) > 30 and len(artist) <= 30:
         # Long song, short artist — truncate song to fill remaining space
-        return artist + " - " + song[:58 - len(artist)] + "..."
+        return artist + " - " + song[:60 - len(artist)] + "~"
     else:
-        # Both long — artist gets 28 chars, song gets 27 chars (28 + "... - " + 27 + "..." = 64)
-        return artist[:28] + "... - " + song[:27] + "..."
+        # Both long — artist gets 30 chars, song gets 29 chars (30 + "~ - " + 29 + "~" = 64)
+        return artist[:30] + "~ - " + song[:29] + "~"
 
 
 def get_now_playing(session):
