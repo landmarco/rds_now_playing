@@ -6,7 +6,7 @@ Polls the WXDU now-playing endpoint every 10 seconds and pushes the current arti
 
 - macOS (iMac or Mac mini)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Network access to the RDS transmitter at `71.210.6.210:5423`
+- Network access to the RDS transmitter at a static IP
 
 ## Setup
 
