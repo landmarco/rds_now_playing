@@ -60,14 +60,17 @@ Text is run through three steps before it goes out:
    the character the DJ actually typed.
 2. **ASCII folding** via `unidecode`, so `Björk` becomes `Bjork`.
 3. **RDS character substitution.** RDS uses the G0 code table from IEC 62106, not ASCII,
-   and a few punctuation marks sit at positions the standard assigns to another glyph:
-   `^` renders as `―`, `` ` `` as `‖`, `~` as `¯` and `$` as `¤`. The first two are
-   substituted; `$` is left for the encoder to translate, and `~` is passed through but
-   no longer used by the script itself (see `TRUNCATION_MARK` in `main.py`).
+   and a few punctuation marks sit at positions the standard assigns to another glyph.
+   Measured on the unit with `probe_rtplus.py --write`, which sends the awkward
+   characters and reads back what was stored: the encoder **silently drops `~`, `^` and
+   `` ` ``**, while `>`, `*`, `.` and `$` pass through. So `` ` `` becomes `'` (better
+   than vanishing), `^` is dropped either way, and `$` is left for the encoder to
+   translate to 0xAB itself.
 
 RadioText is capped at 64 characters. When artist and song don't both fit, the shorter
 one is kept whole and the longer one is trimmed with `TRUNCATION_MARK` (`>`) appended.
-`>` is 0x3E in both ASCII and G0, so it reaches the receiver as the glyph we sent.
+This used to be `~`, which never showed up on air because the encoder discards it before
+transmission; `>` is 0x3E in both ASCII and G0 and survives the round-trip.
 
 ## RT+ (RadioText Plus)
 

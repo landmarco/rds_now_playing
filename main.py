@@ -54,19 +54,24 @@ keepalive_interval = 120 # seconds between forced RT_TEXT resends even if track 
 # tilde either (and most receivers ignore code-table switching anyway). So the only
 # lever we have is choosing characters that land on the same glyph in both tables.
 #
+# Measured on the unit, by sending "WXDU probe ~ > * . $ ^ ` end" and reading RDS.RT
+# back (probe_rtplus.py --write): it answered "WXDU probe   > * . $     end". So this
+# encoder silently DROPS ~ ^ and ` — they never reach the air at all — while > * . and
+# $ pass through. That is one step earlier than a receiver drawing the wrong glyph.
+#
 # Deliberately left alone:
-#   $  the RDS dollar sign lives at 0xAB, and translating to it is the encoder's job;
-#      remapping here would translate it twice (see NRSC-G300-C §9.2).
-#   ~  left as-is rather than substituted, so a tilde a DJ actually typed in a title is
-#      passed through to the encoder untouched; we simply don't use it ourselves.
+#   $  survives the encoder, which translates it to 0xAB (where RDS keeps the dollar
+#      sign) itself; remapping here would translate it twice — see NRSC-G300-C §9.2.
+#   ~  dropped by the encoder rather than mangled, so a tilde a DJ typed in a title
+#      just vanishes. Harmless, and not worth guessing a replacement for.
 RDS_SUBSTITUTIONS = str.maketrans({"^": "", "`": "'"})
 
 # Appended to artist or song when it had to be shortened to fit RadioText.
 #
-# ">" is 0x3E, the one code point where ASCII and G0 agree on this glyph, so it survives
-# the trip intact. It replaces "~" (0x7E), which G0 maps to "¯" (macron) rather than a
-# tilde — receivers drew it as a thin overline or as nothing at all, which is why the mark
-# looked like it was never being sent. "*" (0x2A) and "." (0x2E) are equally safe swaps.
+# ">" is 0x3E in both ASCII and G0, and the round-trip above confirms the encoder keeps
+# it. It replaces "~", which the encoder drops outright — that is why the mark never
+# appeared on air, however long the artist or title was. "*" and "." also survived the
+# round-trip and are equally safe swaps.
 TRUNCATION_MARK = ">"
 
 RT_MAX = 64              # RadioText is 64 characters, hard limit
