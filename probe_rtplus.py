@@ -215,12 +215,12 @@ def run_commands(sock, commands, enable):
         show(f"RT_PLUS={enable}", send(sock, f"RT_PLUS={enable}", wait=2.0))
 
     print("\nState now:")
-    sequence = ""
+    state = {}
     for query in ("RT_PLUS_AUTO", "RT_PLUS", "RDS.GS", "SEQ3A"):
         answer = send(sock, query, wait=2.0)
         show(query, answer)
-        if query == "RDS.GS":
-            sequence = answer.strip()
+        state[query] = answer.strip()
+    sequence = state["RDS.GS"]
 
     if enable is not None:
         # RT_PLUS takes a group index; RDS.GS speaks group names. Both are needed:
@@ -231,6 +231,15 @@ def run_commands(sock, commands, enable):
 
         if not needed:
             print(f"\n  {group_name(enable)} and 3A are both in the sequence — RT+ should be on air.")
+            if not state["SEQ3A"]:
+                # SEQ3A lists which ODAs get their AID announced when a 3A slot comes
+                # round. RT+ is an integrated feature here rather than a generic ODA, so
+                # the encoder may fill this in by itself — but if it doesn't, receivers
+                # never learn AID 4BD7 and ignore the tag group entirely.
+                print()
+                print("  Note: SEQ3A is empty. If a receiver still shows no RT+, that is the")
+                print("  first thing to try, since 3A is what announces the RT+ AID:")
+                print(f"       --cmd=\"SEQ3A={group_name(enable)}\"")
             return
 
         print()
