@@ -32,6 +32,7 @@ RadioText holds on the last song while the service is stopped; it does not go si
 original is read first and put back at the end.
 """
 
+import re
 import socket
 import sys
 import time
@@ -64,6 +65,22 @@ QUERIES = [
     "ODA.13B.AID",
     "HELP",
 ]
+
+# Command names taken from the encoder's own HELP output, for typo-checking --cmd.
+KNOWN_COMMANDS = {
+    "TA", "PTY", "AF", "PS_TEXT", "PS_OPTIONS", "PS_SCROLL", "PS_STRING", "PS_RT_TEXT",
+    "RT_TEXT", "RT_PLUS", "RT_PLUS_AUTO", "RT", "DSN.CURR", "EON_ELEMENTS", "PING",
+    "RDS.OPMODE", "RDS.CURDSN", "RDS.PI", "RDS.PS", "RDS.TA", "RDS.TP", "RDS.RT",
+    "RDS.PTY", "RDS.PTYN", "RDS.GS", "RDS.AF", "RDS.LONG_PS", "RDS.RADIOTEXT.TEXT",
+    "RDS.RADIOTEXT.NB", "RDS.RADIOTEXT.TOGGLE", "RDS.DSN", "RDS.PSN", "RDS.EON.ADD",
+    "RDS.EON.DEL", "RDS.EON.ACTIVE", "IP.ADDR", "IP.MASK", "IP.GW", "IP.APPLY",
+    "UECP.SITE", "UECP.ENCODER", "UECP.LEGACY", "PHASE", "LEVEL", "SNMP.TRAPS",
+    "SNMP.TRAPS.DEST", "SNMP.COMMUNITY.GET", "SNMP.COMMUNITY.SET", "DATE", "TIME",
+    "REBOOT", "RDS", "PI", "GS", "CT", "CT.OFFSET", "SEQ3A", "HELP", "?",
+    "ODA.1B.AID", "ODA.13B.AID", "ODA.1B.REPEAT", "ODA.13B.REPEAT",
+    "ODA.1B.MSG", "ODA.13B.MSG", "ODA.1B.MSG2", "ODA.13B.MSG2",
+    "QUIT", "EXIT", "LOGOUT",
+}
 
 # Every character that the RDS G0 code table places somewhere other than ASCII does,
 # plus the two truncation marks we care about.
@@ -154,6 +171,28 @@ def connect(port, login=True, patience=15.0):
     return sock, banner
 
 
+def check_command(command):
+    """Warn about the typos that cost a round trip: a wrong name, or O for 0 in a group.
+
+    The encoder answers anything it dislikes with a bare "!", which is easy to miss in
+    a wall of output, so it is worth catching what we can before sending.
+    """
+    name = command.split("=", 1)[0].strip().upper()
+    complaints = []
+    if name not in KNOWN_COMMANDS:
+        close = [k for k in KNOWN_COMMANDS if k.startswith(name[:5])]
+        hint = f" — did you mean {' or '.join(close)}?" if close else ""
+        complaints.append(f"{name} is not a command this script knows about{hint}")
+
+    if name in ("RDS.GS", "SEQ3A") and "=" in command:
+        for group in command.split("=", 1)[1].split(","):
+            group = group.strip()
+            if not re.fullmatch(r"\d{1,2}[AB]", group.upper()):
+                extra = " (letter O instead of zero?)" if group.upper().startswith("O") else ""
+                complaints.append(f"{group!r} does not look like a group name{extra}")
+    return complaints
+
+
 def group_name(index):
     """Turn an RT_PLUS group index into the name RDS.GS uses: 22 -> '11A', 23 -> '11B'."""
     return f"{index // 2}{'A' if index % 2 == 0 else 'B'}"
@@ -162,7 +201,13 @@ def group_name(index):
 def run_commands(sock, commands, enable):
     """Send explicit commands and/or the RT+ enable sequence, then read the state back."""
     for command in commands:
-        show(command, send(sock, command, wait=2.0))
+        for complaint in check_command(command):
+            print(f"  ?? {complaint}")
+        answer = send(sock, command, wait=2.0)
+        show(command, answer)
+        if answer.strip() == "!":
+            print("     ^ '!' means the encoder rejected that — usually a misspelled")
+            print("       command name or a bad argument. Nothing was changed.")
 
     if enable is not None:
         print("\nEnabling RT+ (both settings persist on the unit):")
