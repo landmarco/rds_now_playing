@@ -11,6 +11,17 @@ strips it, or substitutes something else before it ever reaches a receiver.
 
     uv run probe_rtplus.py              # read-only: queries and HELP, changes nothing
     uv run probe_rtplus.py --write      # also sends test text, then restores what was there
+    uv run probe_rtplus.py --port=5423  # try the old router mapping instead of 23
+
+STOP THE SERVICE FIRST. The encoder allows a limited number of telnet sessions, and
+the LaunchAgent holds one permanently — a second connection is then accepted by TCP
+but never answered, which looks like a dead port:
+
+    launchctl unload ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist
+    ... run the probe ...
+    launchctl load ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist
+
+RadioText holds on the last song while the service is stopped; it does not go silent.
 
 --write briefly changes the on-air RadioText (a few seconds), so run it at a quiet
 moment. The original RadioText is read first and restored at the end.
@@ -30,6 +41,9 @@ HOST = _env["RDS_IP"]
 LOGIN = _env["RDS_LOGIN"]
 PASSWORD = _env["RDS_PASSWORD"]
 CONFIG_PORT = int(_env.get("RDS_PORT", "23"))   # accepts every command, prompts for login
+for _arg in sys.argv[1:]:                       # --port 5423 to try the old mapping
+    if _arg.startswith("--port="):
+        CONFIG_PORT = int(_arg.split("=", 1)[1])
 COMMAND_PORT = 2000                             # per the manual: RT+ and dynamic PS only
 
 # Read-only queries. An unsupported name comes back as "UNKNOWN COMMAND", which is itself
@@ -59,24 +73,33 @@ TAG_CANDIDATES = [
 PROBE_TEXT = "WXDU probe ~ > * . $ ^ ` end"
 
 
-def drain(sock, wait=0.6):
-    """Collect whatever the encoder has to say, until it goes quiet."""
-    sock.settimeout(wait)
+def read_for(sock, seconds, until=None):
+    """Read for up to `seconds`, stopping early on `until`. Returns (text, closed)."""
+    deadline = time.monotonic() + seconds
     chunks = []
-    try:
-        while True:
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return b"".join(chunks).decode("utf-8", "replace"), False
+        sock.settimeout(remaining)
+        try:
             data = sock.recv(4096)
-            if not data:
-                break
-            chunks.append(data)
-    except socket.timeout:
-        pass
-    return b"".join(chunks).decode("utf-8", "replace")
+        except socket.timeout:
+            return b"".join(chunks).decode("utf-8", "replace"), False
+        except OSError:
+            # Reset by the peer, or by something in between — same as a close here
+            return b"".join(chunks).decode("utf-8", "replace"), True
+        if not data:
+            return b"".join(chunks).decode("utf-8", "replace"), True
+        chunks.append(data)
+        text = b"".join(chunks).decode("utf-8", "replace")
+        if until and until in text.upper():
+            return text, False
 
 
-def send(sock, line, wait=0.6):
+def send(sock, line, wait=1.0):
     sock.sendall((line + "\r\n").encode("utf-8"))
-    return drain(sock, wait)
+    return read_for(sock, wait)[0]
 
 
 def show(label, response):
@@ -84,14 +107,53 @@ def show(label, response):
     print(f"  {label:<34} -> {body!r}")
 
 
-def connect(port, login=True):
+def connect(port, login=True, patience=15.0):
+    """Connect and log in, reporting exactly what the encoder does and doesn't say."""
+    started = time.monotonic()
     sock = socket.create_connection((HOST, port), timeout=15)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    banner = drain(sock, 2.0)
-    if login and "LOGIN" in banner.upper():
-        send(sock, LOGIN)
-        send(sock, PASSWORD)
-        banner += drain(sock, 1.0)
+    print(f"  TCP connect to {HOST}:{port} succeeded in {time.monotonic() - started:.1f}s")
+
+    banner, closed = read_for(sock, patience, until="LOGIN")
+    print(f"  banner after {time.monotonic() - started:.1f}s -> {banner.strip()!r}")
+    if closed:
+        print("  !! the encoder closed the connection immediately.")
+        return sock, banner
+
+    if not banner.strip():
+        # Some units stay silent until they see a newline. Nudge it before giving up.
+        print("  nothing yet — sending a bare newline to prompt it...")
+        try:
+            sock.sendall(b"\r\n")
+            more, closed = read_for(sock, patience, until="LOGIN")
+        except OSError as e:
+            print(f"  connection dropped when nudged: {e}")
+            more = ""
+        print(f"  after nudge -> {more.strip()!r}")
+        banner += more
+
+    if not banner.strip():
+        print()
+        print("  !! Connected, but the encoder never sent anything. The usual cause is")
+        print("     that it allows only ONE telnet session and the LaunchAgent already")
+        print("     has it. Stop the service and run this again:")
+        print("       launchctl unload ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist")
+        print("     (RadioText freezes on the last song until you load it back; it does")
+        print("      not go silent.) If it is still quiet with the service stopped, then")
+        print("     something between here and the encoder is accepting the connection")
+        print("     without passing it through — check the router's port-23 forward.")
+        return sock, banner
+
+    if login:
+        # Send credentials whenever a prompt showed up at all, rather than insisting
+        # on seeing it inside one short window.
+        send(sock, LOGIN, wait=3.0)
+        response = send(sock, PASSWORD, wait=3.0)
+        print(f"  after login -> {response.strip()!r}")
+        if "LOGGED" not in response.upper():
+            print("  !! no LOGGED confirmation — check RDS_LOGIN / RDS_PASSWORD in .env")
+        banner += response
+
     return sock, banner
 
 
@@ -100,16 +162,18 @@ def main():
     print(f"Connecting to {HOST}:{CONFIG_PORT} (configuration port)\n")
 
     sock, banner = connect(CONFIG_PORT)
-    print(f"  banner -> {banner.strip()!r}\n")
+    if not banner.strip():
+        print("\nStopping here — no point sending commands into silence.")
+        sock.close()
+        return
 
-    print("Read-only queries:")
+    print("\nRead-only queries:")
     for query in QUERIES:
         show(query, send(sock, query))
 
     print(f"\nCommand port {COMMAND_PORT} (manual says RT+ / dynamic PS only):")
     try:
-        cmd_sock, cmd_banner = connect(COMMAND_PORT)
-        print(f"  banner -> {cmd_banner.strip()!r}")
+        cmd_sock, _ = connect(COMMAND_PORT, login=False, patience=5.0)
         show("RT_PLUS", send(cmd_sock, "RT_PLUS"))
     except OSError as e:
         cmd_sock = None
@@ -151,4 +215,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except OSError as e:
+        print(f"\nCould not talk to the encoder at {HOST}:{CONFIG_PORT} — {e}")
+        print("If this is a timeout, the port is filtered rather than closed; check the")
+        print("router's forward. Try --port=5423 to see whether the old mapping answers.")
