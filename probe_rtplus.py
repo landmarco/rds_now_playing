@@ -80,6 +80,10 @@ KNOWN_COMMANDS = {
     "ODA.1B.AID", "ODA.13B.AID", "ODA.1B.REPEAT", "ODA.13B.REPEAT",
     "ODA.1B.MSG", "ODA.13B.MSG", "ODA.1B.MSG2", "ODA.13B.MSG2",
     "QUIT", "EXIT", "LOGOUT",
+    # RT+ field labels from the RDS Settings / RT Plus page. These are editable there,
+    # so this list is only the factory defaults — a renamed label will warn, harmlessly.
+    "ARTISTNAME", "SONGTITLE", "ALBUMNAME", "DURATION", "TRACKNUMBER", "BAND",
+    "COMPOSER", "CONDUCTOR", "COMPOSITION", "MOVEMENT", "COMMENT", "GENRE",
 }
 
 # Every character that the RDS G0 code table places somewhere other than ASCII does,

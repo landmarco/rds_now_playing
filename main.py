@@ -81,20 +81,22 @@ SEPARATOR = " - "        # between artist and song; keep stable, the encoder tag
 #
 # RT+ tags a slice of the RadioText with a content type, so a receiver can show "Artist"
 # and "Title" as separate fields instead of one run-on string. The tags ride in an RDS
-# ODA (AID 4BD7) announced in group 3A; the content type codes are ITEM.TITLE=1,
-# ITEM.ALBUM=2, ITEM.ARTIST=4. Only two tags fit in one group, which is why artist and
-# title are the pair worth sending and album has nowhere to go.
+# ODA (AID 4BD7) announced in group 3A.
 #
-# The encoder's own HELP output settles how to drive it: there is no ASCII command for
-# the tags themselves. The complete RT+ surface is two commands —
+# On this encoder the tags are not sent as positions. Each RT+ content type has a label
+# on the RDS Settings / RT Plus page, and sending "<label>=<value>" stores that value;
+# with "RT Plus Auto Generation" ticked the encoder then finds the value inside the
+# RadioText and emits the tag pointing at it. So the script sends the RadioText, then the
+# same artist and song as labelled fields, and the encoder does the position arithmetic.
 #
-#     RT_PLUS_AUTO=1      have the encoder derive the tags from the RadioText
-#     RT_PLUS=<group>     which RDS group carries them (0 removes it)
-#
-# — both set once on the unit, where they persist. So the script's entire contribution
-# to RT+ is keeping the RadioText in a shape the encoder can split: "<artist> - <song>",
-# with SEPARATOR appearing exactly once, which build_rt() guarantees. Sending the tag
-# positions ourselves would mean speaking UECP instead of this ASCII console.
+# These labels must match that page exactly — they are editable there, and changing one
+# without changing it here silently stops that field updating. The page's own defaults
+# are the uppercase names below.
+rtplus_fields = {
+    "ARTISTNAME": "artist",
+    "SONGTITLE": "song",
+    "ALBUMNAME": "album",
+}
 
 
 ### Helper functions
@@ -173,13 +175,13 @@ _using_legacy = False
 
 
 def fetch_json(session):
-    """Fetch the now-playing JSON API. Returns ('', '') when nothing is on air."""
+    """Fetch the now-playing JSON API. Returns empty fields when nothing is on air."""
     r = session.get(link, timeout=15)
     if r.status_code == 404:      # off air — the API's documented empty response
-        return "", ""
+        return {"artist": "", "song": "", "album": ""}
     r.raise_for_status()
     track = r.json()
-    return to_rds_text(track.get("artist")), to_rds_text(track.get("song"))
+    return {name: to_rds_text(track.get(name)) for name in ("artist", "song", "album")}
 
 
 def fetch_legacy_xml(session):
@@ -190,14 +192,18 @@ def fetch_legacy_xml(session):
     xml = re.sub(r'&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)', '&amp;', f.text)
     text = to_rds_text(''.join(ET.fromstring(xml).itertext()))
     artist, _, song = text.partition(SEPARATOR)
-    return artist, song
+    return {"artist": artist, "song": song, "album": ""}   # the old feed has no album
 
 
 def get_now_playing(session):
-    """Return the RadioText line for whatever is playing right now."""
+    """Return (radiotext, fields) for whatever is playing right now.
+
+    fields carries artist/song/album for the RT+ labels; it is empty when there is
+    nothing to tag, so a stale artist can't stay tagged over the fallback text.
+    """
     global _using_legacy
     try:
-        artist, song = fetch_json(session)
+        track = fetch_json(session)
         if _using_legacy:
             print(f"[{ts()}] JSON API is back; using it again", flush=True)
             _using_legacy = False
@@ -205,14 +211,23 @@ def get_now_playing(session):
         if not _using_legacy:
             print(f"[{ts()}] JSON API unavailable ({e}); falling back to the XML feed", flush=True)
             _using_legacy = True
-        artist, song = fetch_legacy_xml(session)
+        track = fetch_legacy_xml(session)
 
+    artist, song = track["artist"], track["song"]
     if not artist and not song:
-        return fallback_text
+        return fallback_text, {}
     if not artist or not song:
         # Only one field — nothing for the encoder to split on
-        return (artist or song)[:RT_MAX]
-    return build_rt(artist, song)
+        return (artist or song)[:RT_MAX], {}
+
+    text = build_rt(artist, song)
+    # Take the field values back out of the finished RadioText rather than using the
+    # originals: the encoder tags by finding the value inside the RT, so a truncated
+    # artist has to be sent in its truncated form or it is simply not found there.
+    # (ALBUMNAME never appears in the RT, so the encoder has nothing to point a tag at —
+    # it is sent to populate the field, not in the expectation of a tag.)
+    track["artist"], _, track["song"] = text.partition(SEPARATOR)
+    return text, track
 
 
 ### Telnet connection
@@ -296,9 +311,15 @@ def connect_telnet():
     return tn
 
 
-def set_rt(tn, text):
-    """Send an RT_TEXT update command to the RDS encoder over the telnet connection."""
+def set_rt(tn, text, fields):
+    """Send the RadioText, then the RT+ field values the encoder tags against.
+
+    The RadioText goes first so the values are already findable in it. A field the feed
+    left empty is cleared rather than skipped, so last song's album can't linger.
+    """
     tn.write("RT_TEXT=" + text)
+    for label, name in rtplus_fields.items():
+        tn.write(f"{label}={fields.get(name, '')}")
 
 
 ### Main loop
@@ -313,10 +334,10 @@ def main():
         try:
             ### Get initial now-playing and establish telnet connection
 
-            text_rt = get_now_playing(session)
+            text_rt, fields = get_now_playing(session)
             tn = connect_telnet()
             print(f"[{ts()}] Connected on port {tn_port}. Now playing: {text_rt}", flush=True)
-            set_rt(tn, text_rt)
+            set_rt(tn, text_rt, fields)
             last_sent = time.monotonic()
             time.sleep(update_time)
 
@@ -328,7 +349,7 @@ def main():
                 # Poll the now-playing endpoint; if HTTP fails, skip this cycle and retry next poll
                 # without dropping the telnet connection (HTTP blips shouldn't force a reconnect)
                 try:
-                    text_rt_new = get_now_playing(session)
+                    text_rt_new, fields_new = get_now_playing(session)
                 except Exception as e:
                     print(f"[{ts()}] HTTP error: {e}. Retrying next poll...", flush=True)
                     time.sleep(update_time)
@@ -341,10 +362,10 @@ def main():
                 keepalive_due = (now - last_sent) >= keepalive_interval
 
                 if track_changed or keepalive_due:
-                    text_rt = text_rt_new
+                    text_rt, fields = text_rt_new, fields_new
                     # Telnet exceptions are intentionally NOT caught here — they propagate up
                     # to the outer except block, which reconnects the telnet connection
-                    set_rt(tn, text_rt)
+                    set_rt(tn, text_rt, fields)
                     last_sent = now
                     if track_changed:
                         print(f"[{ts()}] Now playing: {text_rt}", flush=True)
