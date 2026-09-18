@@ -72,26 +72,60 @@ one is kept whole and the longer one is trimmed with `TRUNCATION_MARK` (`>`) app
 ## RT+ (RadioText Plus)
 
 RT+ tags a slice of the RadioText with a content type, so a car radio can show Artist and
-Title as separate fields. Only two tags fit in one RT+ group, so we tag `ITEM.ARTIST` (4)
-and `ITEM.TITLE` (1); album is available from the API but has no room alongside those.
+Title as separate fields instead of one run-on string. The tags ride in an RDS ODA
+(AID `4BD7`) announced in group 3A. Only two tags fit in one group, so `ITEM.ARTIST` (4)
+and `ITEM.TITLE` (1) are the pair worth sending; album is available from the API but has
+nowhere to go alongside those.
 
-The script keeps the RadioText in a stable `<artist> - <song>` shape and computes the tag
-positions. Getting them on air needs the encoder configured once:
+The encoder's `HELP` output shows it has **no ASCII command for the tags themselves** —
+the entire RT+ surface is two settings, and both persist on the unit:
 
-1. On the encoder's web UI, open **RDS / RT Plus** and tick **RT Plus Auto Generation**.
-2. Assign RT+ a group — over telnet, `RT_PLUS=11` — and make sure that group is in the
-   group sequence.
-3. Confirm on an RT+ capable receiver.
+```
+RT_PLUS_AUTO=1      encoder derives the tags from the RadioText it is given
+RT_PLUS=<group>     which RDS group carries them (0 removes it)
+```
 
-With auto-generation on, the encoder derives the tags from the RadioText itself and the
-script needs to send nothing extra. To send tag positions explicitly instead, the exact
-command syntax has to come from the unit — the manual documents `RT_PLUS=<group>` but no
-tagging command. Run `uv run probe_rtplus.py` to ask the encoder what it accepts, then set
-`rtplus_template` and `rtplus_mode = "command"` in `main.py`.
+So the script's whole contribution is keeping the RadioText in a shape the encoder can
+split — `<artist> - <song>`, with the separator marking the real boundary. `build_rt()`
+guarantees that: the separator survives truncation, and a separator inside an artist name
+is disguised so it can't move the split (`Emerson, Lake - Palmer` becomes
+`Emerson, Lake / Palmer`). A separator inside a *song* title is harmless, since the split
+takes the first one.
 
-`probe_rtplus.py` is read-only by default. `--write` additionally sends a test RadioText
-containing the awkward characters and reads it back, which shows what the encoder keeps,
-strips or substitutes before anything reaches a receiver.
+Enabling it, over telnet on port 23:
+
+1. `RT_PLUS_AUTO=1`
+2. `RT_PLUS=<group>`. The argument is a group index, not a group name: the encoder accepts
+   `3, 7, 9-19, 21-27`, which map as `index = 2 × type + (0 for A, 1 for B)`. So 11A — the
+   conventional RT+ group — is `22`, and 12A is `24`.
+3. Read both back, and check `RDS.GS` includes that group and `SEQ3A` is populated. A group
+   that isn't in the sequence is never transmitted, which is the quiet way for this to fail.
+4. Confirm on an RT+ capable receiver.
+
+Receivers find RT+ by following the AID announcement in 3A rather than by looking at a
+fixed group, so the exact choice matters less than it being in the group sequence.
+
+Sending tag positions explicitly instead would mean speaking UECP rather than this ASCII
+console — a much larger change, and unnecessary while auto-generation works.
+
+## The probe script
+
+`probe_rtplus.py` asks the encoder what it supports and prints the answers. Read-only by
+default: full `HELP` command list, current RT+ state, group sequence. With `--write` it
+also sends a RadioText containing the awkward characters and reads the stored value back,
+showing what the encoder keeps, strips or substitutes.
+
+**Stop the service first** — the encoder allows a limited number of telnet sessions and
+the LaunchAgent holds one permanently. A second connection is then accepted by TCP but
+never answered, which looks exactly like a dead port:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist
+uv run probe_rtplus.py
+launchctl load ~/Library/LaunchAgents/org.wxdu.rds-now-playing.plist
+```
+
+RadioText holds on the last song while the service is stopped; it does not go silent.
 
 ## Running as a background service (launchd)
 

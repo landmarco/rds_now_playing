@@ -72,35 +72,24 @@ TRUNCATION_MARK = ">"
 RT_MAX = 64              # RadioText is 64 characters, hard limit
 SEPARATOR = " - "        # between artist and song; keep stable, the encoder tags on it
 
-# RT+ content type class codes, from the RT+ specification (also listed in the encoder
-# manual §4.4). Only two tags fit in one RT+ group, so artist + title is the usable pair;
-# ITEM.ALBUM is defined here for reference but would have to alternate with one of them.
-RTP_ITEM_TITLE = 1
-RTP_ITEM_ALBUM = 2
-RTP_ITEM_ARTIST = 4
-
 ### RT+ (RadioText Plus)
 #
-# RT+ tags a slice of the RadioText with a content type so a receiver can show "Artist"
+# RT+ tags a slice of the RadioText with a content type, so a receiver can show "Artist"
 # and "Title" as separate fields instead of one run-on string. The tags ride in an RDS
-# ODA (AID 4BD7) announced in group 3A. There are two ways to get them out of this
-# encoder (AUDEMAT RDS Encoder, software 1.x):
+# ODA (AID 4BD7) announced in group 3A; the content type codes are ITEM.TITLE=1,
+# ITEM.ALBUM=2, ITEM.ARTIST=4. Only two tags fit in one group, which is why artist and
+# title are the pair worth sending and album has nowhere to go.
 #
-#   "auto"    — tick "RT Plus Auto Generation" on the RDS/RT Plus page of the encoder's
-#               web UI and assign it a group with the `RT_PLUS=11` command. The encoder
-#               derives the artist/title tags from the RadioText we already send, so the
-#               script's only job is to keep the "<artist> - <song>" shape stable, which
-#               build_rt() now guarantees. This needs no undocumented commands, so it is
-#               the default.
+# The encoder's own HELP output settles how to drive it: there is no ASCII command for
+# the tags themselves. The complete RT+ surface is two commands —
 #
-#   "command" — send the tag positions ourselves. The manual documents `RT_PLUS=<group>`
-#               to enable the feature but no command for the tags themselves, so the
-#               syntax has to come from the unit: run probe_rtplus.py, put what it
-#               accepts in rtplus_template, and switch rtplus_mode to "command".
+#     RT_PLUS_AUTO=1      have the encoder derive the tags from the RadioText
+#     RT_PLUS=<group>     which RDS group carries them (0 removes it)
 #
-# Template fields available: {t1_type} {t1_start} {t1_len} {t2_type} {t2_start} {t2_len}
-rtplus_mode = "auto"
-rtplus_template = None
+# — both set once on the unit, where they persist. So the script's entire contribution
+# to RT+ is keeping the RadioText in a shape the encoder can split: "<artist> - <song>",
+# with SEPARATOR appearing exactly once, which build_rt() guarantees. Sending the tag
+# positions ourselves would mean speaking UECP instead of this ASCII console.
 
 
 ### Helper functions
@@ -146,11 +135,17 @@ def _shorten(value, limit):
 
 
 def build_rt(artist, song):
-    """Compose the RadioText line and its RT+ tags from a separate artist and song.
+    """Compose the RadioText line from a separate artist and song.
 
-    Returns (text, tags), where tags maps an RT+ content type to (start, length) with
-    start a 0-based character offset into text — the form RT+ start/length markers take.
+    Both fields are kept whole where they fit, because the encoder's RT+ auto-generation
+    splits this string on SEPARATOR to work out where the artist ends and the title
+    begins — so the separator has to survive truncation and mark the real boundary.
     """
+    # A song may contain " - " harmlessly, since the split takes the first one; an artist
+    # containing it would move the boundary, so that copy is disguised ("Emerson, Lake
+    # - Palmer" would otherwise be tagged as the artist "Emerson, Lake").
+    artist = artist.replace(SEPARATOR, " / ")
+
     budget = RT_MAX - len(SEPARATOR)   # characters left for artist and song together
     half = budget // 2
 
@@ -166,30 +161,7 @@ def build_rt(artist, song):
         artist = _shorten(artist, artist_limit)
         song = _shorten(song, song_limit)
 
-    text = artist + SEPARATOR + song
-    tags = {
-        RTP_ITEM_ARTIST: (0, len(artist)),
-        RTP_ITEM_TITLE: (len(artist) + len(SEPARATOR), len(song)),
-    }
-    return text, tags
-
-
-def rtplus_command_lines(tags):
-    """Render the encoder command(s) carrying the RT+ tags, for rtplus_mode == 'command'.
-
-    The length marker is the length *in addition to* the first character, so it is
-    len - 1. Tag 1 has 6 bits for it and tag 2 only 5, so the longer field goes in
-    tag 1 and tag 2 is clamped to the 32 characters it can actually describe.
-    """
-    if rtplus_mode != "command" or not rtplus_template or not tags:
-        return []
-
-    first, second = sorted(tags.items(), key=lambda item: item[1][1], reverse=True)
-    (t1_type, (t1_start, t1_length)), (t2_type, (t2_start, t2_length)) = first, second
-    return [rtplus_template.format(
-        t1_type=t1_type, t1_start=t1_start, t1_len=min(t1_length, 64) - 1,
-        t2_type=t2_type, t2_start=t2_start, t2_len=min(t2_length, 32) - 1,
-    )]
+    return artist + SEPARATOR + song
 
 
 _using_legacy = False
@@ -217,7 +189,7 @@ def fetch_legacy_xml(session):
 
 
 def get_now_playing(session):
-    """Return (radiotext, rt+ tags) for whatever is playing right now."""
+    """Return the RadioText line for whatever is playing right now."""
     global _using_legacy
     try:
         artist, song = fetch_json(session)
@@ -231,10 +203,10 @@ def get_now_playing(session):
         artist, song = fetch_legacy_xml(session)
 
     if not artist and not song:
-        return fallback_text, {}
+        return fallback_text
     if not artist or not song:
-        # Only one field — nothing to tag, and nothing to split on
-        return (artist or song)[:RT_MAX], {}
+        # Only one field — nothing for the encoder to split on
+        return (artist or song)[:RT_MAX]
     return build_rt(artist, song)
 
 
@@ -319,11 +291,9 @@ def connect_telnet():
     return tn
 
 
-def set_rt(tn, text, tags):
+def set_rt(tn, text):
     """Send an RT_TEXT update command to the RDS encoder over the telnet connection."""
     tn.write("RT_TEXT=" + text)
-    for line in rtplus_command_lines(tags):
-        tn.write(line)
 
 
 ### Main loop
@@ -338,10 +308,10 @@ def main():
         try:
             ### Get initial now-playing and establish telnet connection
 
-            text_rt, tags = get_now_playing(session)
+            text_rt = get_now_playing(session)
             tn = connect_telnet()
             print(f"[{ts()}] Connected on port {tn_port}. Now playing: {text_rt}", flush=True)
-            set_rt(tn, text_rt, tags)
+            set_rt(tn, text_rt)
             last_sent = time.monotonic()
             time.sleep(update_time)
 
@@ -353,7 +323,7 @@ def main():
                 # Poll the now-playing endpoint; if HTTP fails, skip this cycle and retry next poll
                 # without dropping the telnet connection (HTTP blips shouldn't force a reconnect)
                 try:
-                    text_rt_new, tags_new = get_now_playing(session)
+                    text_rt_new = get_now_playing(session)
                 except Exception as e:
                     print(f"[{ts()}] HTTP error: {e}. Retrying next poll...", flush=True)
                     time.sleep(update_time)
@@ -366,10 +336,10 @@ def main():
                 keepalive_due = (now - last_sent) >= keepalive_interval
 
                 if track_changed or keepalive_due:
-                    text_rt, tags = text_rt_new, tags_new
+                    text_rt = text_rt_new
                     # Telnet exceptions are intentionally NOT caught here — they propagate up
                     # to the outer except block, which reconnects the telnet connection
-                    set_rt(tn, text_rt, tags)
+                    set_rt(tn, text_rt)
                     last_sent = now
                     if track_changed:
                         print(f"[{ts()}] Now playing: {text_rt}", flush=True)
