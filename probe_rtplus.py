@@ -14,6 +14,10 @@ reaches a receiver.
     uv run probe_rtplus.py --cmd="RDS.GS"       # send any command and show the reply
     uv run probe_rtplus.py --write              # character round-trip
     uv run probe_rtplus.py --port=5423          # try the old router mapping
+    uv run probe_rtplus.py --port=2000 --no-login --cmd="ARTISTNAME=x"
+
+--no-login is for the TCP command port (2000), which has no login prompt and is the
+port the manual says carries RT+ and dynamic PS commands.
 
 --cmd may be repeated, and takes any command from the encoder's HELP list. Reading a
 value is just its name with no "=". --enable-rtplus sends RT_PLUS_AUTO=1 and RT_PLUS=22
@@ -150,6 +154,11 @@ def connect(port, login=True, patience=15.0):
         print(f"  after nudge -> {more.strip()!r}")
         banner += more
 
+    if not banner.strip() and not login:
+        # The command port has no login prompt, so silence here is expected.
+        print("  (no banner — normal for the command port, which does not log in)")
+        return sock, banner
+
     if not banner.strip():
         print()
         print("  !! Connected, but the encoder never sent anything. The usual cause is")
@@ -202,7 +211,7 @@ def group_name(index):
     return f"{index // 2}{'A' if index % 2 == 0 else 'B'}"
 
 
-def run_commands(sock, commands, enable):
+def run_commands(sock, commands, enable, state=True):
     """Send explicit commands and/or the RT+ enable sequence, then read the state back."""
     for command in commands:
         for complaint in check_command(command):
@@ -217,6 +226,9 @@ def run_commands(sock, commands, enable):
         print("\nEnabling RT+ (both settings persist on the unit):")
         show("RT_PLUS_AUTO=1", send(sock, "RT_PLUS_AUTO=1", wait=2.0))
         show(f"RT_PLUS={enable}", send(sock, f"RT_PLUS={enable}", wait=2.0))
+
+    if not state:
+        return
 
     print("\nState now:")
     state = {}
@@ -260,6 +272,7 @@ def run_commands(sock, commands, enable):
 
 def main():
     write_mode = "--write" in sys.argv
+    no_login = "--no-login" in sys.argv
     commands = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--cmd=")]
     enable = None
     for arg in sys.argv[1:]:
@@ -269,14 +282,19 @@ def main():
             enable = int(arg.split("=", 1)[1])
     print(f"Connecting to {HOST}:{CONFIG_PORT} (configuration port)\n")
 
-    sock, banner = connect(CONFIG_PORT)
-    if not banner.strip():
+    # The command port never sends a banner, so don't sit waiting fifteen seconds
+    # for one — some servers drop an idle connection in less than that.
+    sock, banner = connect(CONFIG_PORT, login=not no_login,
+                           patience=2.0 if no_login else 15.0)
+    if not banner.strip() and not no_login:
         print("\nStopping here — no point sending commands into silence.")
         sock.close()
         return
 
     if commands or enable is not None:
-        run_commands(sock, commands, enable)
+        # The command port answers nothing but the commands themselves, so skip the
+        # state read-back that only the configuration port can satisfy.
+        run_commands(sock, commands, None if no_login else enable, state=not no_login)
         sock.close()
         return
 
