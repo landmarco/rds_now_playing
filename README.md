@@ -99,8 +99,23 @@ uv run probe_rtplus.py --enable-rtplus
 ```
 
 That sends `RT_PLUS_AUTO=1` and `RT_PLUS=22`, reads the state back, and checks the group
-is in the group sequence, telling you the exact `RDS.GS=` line to run if it isn't. A group
-that isn't in the sequence is never transmitted — the quiet way for this to fail.
+sequence, telling you the exact `RDS.GS=` line to run if something is missing. A group that
+isn't in the sequence is never transmitted — the quiet way for this to fail.
+
+Two groups have to be in `RDS.GS`: the tag group itself (11A), and **3A**, which announces
+the RT+ AID so a receiver knows to look there at all. Note that `RT_PLUS` takes a group
+*index* while `RDS.GS` speaks group *names* — `RT_PLUS=22` and `RDS.GS=...,11A` are the
+same group.
+
+Adding groups dilutes 0A, which carries PI/PS/AF and wants a high repetition rate, so
+prefer interleaving over appending:
+
+```
+RDS.GS=0A,2A,0A,3A,0A,2A,0A,11A
+```
+
+That holds 0A at the same share it had as `0A,2A` and halves the RadioText rate, which
+still leaves RT updating far faster than songs change.
 
 `RT_PLUS` takes a group *index*, not a group name: the encoder accepts `3, 7, 9-19, 21-27`,
 which map as `index = 2 × type + (0 for A, 1 for B)`. So 11A — the conventional RT+ group —

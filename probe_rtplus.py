@@ -154,6 +154,11 @@ def connect(port, login=True, patience=15.0):
     return sock, banner
 
 
+def group_name(index):
+    """Turn an RT_PLUS group index into the name RDS.GS uses: 22 -> '11A', 23 -> '11B'."""
+    return f"{index // 2}{'A' if index % 2 == 0 else 'B'}"
+
+
 def run_commands(sock, commands, enable):
     """Send explicit commands and/or the RT+ enable sequence, then read the state back."""
     for command in commands:
@@ -173,16 +178,26 @@ def run_commands(sock, commands, enable):
             sequence = answer.strip()
 
     if enable is not None:
-        groups = [g.strip() for g in sequence.replace(";", ",").split(",")]
-        if str(enable) not in groups:
-            print()
-            print(f"  !! group {enable} is NOT in the group sequence above, so the tags")
-            print("     are generated and then never transmitted. Add it with")
-            print(f"       RDS.GS={sequence},{enable}")
-            print("     (that is the current sequence with the group appended — check it")
-            print("      before sending, since RDS.GS replaces the whole list).")
-        else:
-            print(f"\n  group {enable} is in the sequence — RT+ should be on air.")
+        # RT_PLUS takes a group index; RDS.GS speaks group names. Both are needed:
+        # the tag group carries the tags, and 3A announces the RT+ AID (4BD7) so a
+        # receiver knows to look for them there.
+        groups = [g.strip().upper() for g in sequence.replace(";", ",").split(",") if g.strip()]
+        needed = [g for g in (group_name(enable), "3A") if g not in groups]
+
+        if not needed:
+            print(f"\n  {group_name(enable)} and 3A are both in the sequence — RT+ should be on air.")
+            return
+
+        print()
+        print(f"  !! the sequence is missing {' and '.join(needed)}, so the tags are")
+        print("     generated and then never transmitted. Append them with:")
+        print(f"       RDS.GS={','.join(groups + needed)}")
+        print("     Check it before sending — RDS.GS replaces the whole list.")
+        print()
+        print("     That appended form dilutes 0A, which carries PI/PS/AF and wants a")
+        print("     high repetition rate. To keep 0A at the share it has now, interleave")
+        print("     it instead, e.g.:")
+        print(f"       RDS.GS=0A,2A,0A,3A,0A,2A,0A,{group_name(enable)}")
 
 
 def main():
