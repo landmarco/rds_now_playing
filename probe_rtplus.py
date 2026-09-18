@@ -9,9 +9,15 @@ With --write it also sends a RadioText containing the awkward characters and rea
 stored value back, showing what the encoder keeps, strips or substitutes before anything
 reaches a receiver.
 
-    uv run probe_rtplus.py              # read-only
-    uv run probe_rtplus.py --write      # also does the character round-trip
-    uv run probe_rtplus.py --port=5423  # try the old router mapping instead of 23
+    uv run probe_rtplus.py                      # read-only: HELP and current state
+    uv run probe_rtplus.py --enable-rtplus      # switch RT+ on, then verify it
+    uv run probe_rtplus.py --cmd="RDS.GS"       # send any command and show the reply
+    uv run probe_rtplus.py --write              # character round-trip
+    uv run probe_rtplus.py --port=5423          # try the old router mapping
+
+--cmd may be repeated, and takes any command from the encoder's HELP list. Reading a
+value is just its name with no "=". --enable-rtplus sends RT_PLUS_AUTO=1 and RT_PLUS=22
+(group 11A), then reads the state back and checks the group is in the group sequence.
 
 STOP THE SERVICE FIRST. The encoder allows a limited number of telnet sessions and the
 LaunchAgent holds one permanently — a second connection is then accepted by TCP but
@@ -148,13 +154,56 @@ def connect(port, login=True, patience=15.0):
     return sock, banner
 
 
+def run_commands(sock, commands, enable):
+    """Send explicit commands and/or the RT+ enable sequence, then read the state back."""
+    for command in commands:
+        show(command, send(sock, command, wait=2.0))
+
+    if enable is not None:
+        print("\nEnabling RT+ (both settings persist on the unit):")
+        show("RT_PLUS_AUTO=1", send(sock, "RT_PLUS_AUTO=1", wait=2.0))
+        show(f"RT_PLUS={enable}", send(sock, f"RT_PLUS={enable}", wait=2.0))
+
+    print("\nState now:")
+    sequence = ""
+    for query in ("RT_PLUS_AUTO", "RT_PLUS", "RDS.GS", "SEQ3A"):
+        answer = send(sock, query, wait=2.0)
+        show(query, answer)
+        if query == "RDS.GS":
+            sequence = answer.strip()
+
+    if enable is not None:
+        groups = [g.strip() for g in sequence.replace(";", ",").split(",")]
+        if str(enable) not in groups:
+            print()
+            print(f"  !! group {enable} is NOT in the group sequence above, so the tags")
+            print("     are generated and then never transmitted. Add it with")
+            print(f"       RDS.GS={sequence},{enable}")
+            print("     (that is the current sequence with the group appended — check it")
+            print("      before sending, since RDS.GS replaces the whole list).")
+        else:
+            print(f"\n  group {enable} is in the sequence — RT+ should be on air.")
+
+
 def main():
     write_mode = "--write" in sys.argv
+    commands = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--cmd=")]
+    enable = None
+    for arg in sys.argv[1:]:
+        if arg == "--enable-rtplus":
+            enable = 22                      # 11A, the conventional RT+ group
+        elif arg.startswith("--enable-rtplus="):
+            enable = int(arg.split("=", 1)[1])
     print(f"Connecting to {HOST}:{CONFIG_PORT} (configuration port)\n")
 
     sock, banner = connect(CONFIG_PORT)
     if not banner.strip():
         print("\nStopping here — no point sending commands into silence.")
+        sock.close()
+        return
+
+    if commands or enable is not None:
+        run_commands(sock, commands, enable)
         sock.close()
         return
 

@@ -92,15 +92,27 @@ is disguised so it can't move the split (`Emerson, Lake - Palmer` becomes
 `Emerson, Lake / Palmer`). A separator inside a *song* title is harmless, since the split
 takes the first one.
 
-Enabling it, over telnet on port 23:
+Enabling it — stop the service first, then:
 
-1. `RT_PLUS_AUTO=1`
-2. `RT_PLUS=<group>`. The argument is a group index, not a group name: the encoder accepts
-   `3, 7, 9-19, 21-27`, which map as `index = 2 × type + (0 for A, 1 for B)`. So 11A — the
-   conventional RT+ group — is `22`, and 12A is `24`.
-3. Read both back, and check `RDS.GS` includes that group and `SEQ3A` is populated. A group
-   that isn't in the sequence is never transmitted, which is the quiet way for this to fail.
-4. Confirm on an RT+ capable receiver.
+```bash
+uv run probe_rtplus.py --enable-rtplus
+```
+
+That sends `RT_PLUS_AUTO=1` and `RT_PLUS=22`, reads the state back, and checks the group
+is in the group sequence, telling you the exact `RDS.GS=` line to run if it isn't. A group
+that isn't in the sequence is never transmitted — the quiet way for this to fail.
+
+`RT_PLUS` takes a group *index*, not a group name: the encoder accepts `3, 7, 9-19, 21-27`,
+which map as `index = 2 × type + (0 for A, 1 for B)`. So 11A — the conventional RT+ group —
+is `22`, and 12A is `24`. Pass `--enable-rtplus=24` to choose a different one.
+
+Any other command from the `HELP` list can be sent the same way, repeatably:
+
+```bash
+uv run probe_rtplus.py --cmd="RDS.GS" --cmd="RT_PLUS"
+```
+
+Finally, confirm on an RT+ capable receiver.
 
 Receivers find RT+ by following the AID announcement in 3A rather than by looking at a
 fixed group, so the exact choice matters less than it being in the group sequence.
