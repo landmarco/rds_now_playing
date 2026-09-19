@@ -88,7 +88,12 @@ SEPARATOR = " - "        # between artist and song; keep stable, the encoder tag
 # RadioText itself — which is why build_rt() keeps the "<artist> - <song>" shape stable.
 #
 # Confirmed on air: the unit's own FM Tuner page, decoding the 88.7 broadcast, reports
-# ODA group 11A carrying AID 4BD7, and the 11A ODA buffer shows a cyclic entry.
+# ODA group 11A carrying AID 4BD7, and its analyzer shows 11A at 12.6% of groups — the
+# 12.5% the group sequence asks for. What that does NOT confirm is the content of the
+# tags: the encoder announces the RT+ service and transmits the group, but nothing on
+# the unit displays what the tags point at. Checking that needs an RT+ capable receiver.
+# (Reset the analyzer before reading it — its figures are cumulative, so they carry
+# whatever the group sequence used to be.)
 #
 # Each content type also has an editable label on that page, and sending "<label>=<value>"
 # is accepted (a real label answers "+", a made-up one "!"). Those values never appeared
