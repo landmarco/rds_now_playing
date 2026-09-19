@@ -83,15 +83,21 @@ SEPARATOR = " - "        # between artist and song; keep stable, the encoder tag
 # and "Title" as separate fields instead of one run-on string. The tags ride in an RDS
 # ODA (AID 4BD7) announced in group 3A.
 #
-# On this encoder the tags are not sent as positions. Each RT+ content type has a label
-# on the RDS Settings / RT Plus page, and sending "<label>=<value>" stores that value;
-# with "RT Plus Auto Generation" ticked the encoder then finds the value inside the
-# RadioText and emits the tag pointing at it. So the script sends the RadioText, then the
-# same artist and song as labelled fields, and the encoder does the position arithmetic.
+# On this encoder the tags are not sent as positions. "RT Plus Auto Generation" is
+# ticked on the RDS Settings / RT Plus page, and the encoder derives the tags from the
+# RadioText itself — which is why build_rt() keeps the "<artist> - <song>" shape stable.
 #
-# These labels must match that page exactly — they are editable there, and changing one
-# without changing it here silently stops that field updating. The page's own defaults
-# are the uppercase names below.
+# Confirmed on air: the unit's own FM Tuner page, decoding the 88.7 broadcast, reports
+# ODA group 11A carrying AID 4BD7, and the 11A ODA buffer shows a cyclic entry.
+#
+# Each content type also has an editable label on that page, and sending "<label>=<value>"
+# is accepted (a real label answers "+", a made-up one "!"). Those values never appeared
+# in the page's value column, so they seem not to be what auto-generation uses, and their
+# contribution to the working tags is unconfirmed — they are sent because they are cheap
+# and may matter if auto-generation is ever turned off. Drop rtplus_fields to stop.
+#
+# The labels must match that page exactly: they are editable there, and renaming one
+# without changing it here silently stops that field updating.
 rtplus_fields = {
     "ARTISTNAME": "artist",
     "SONGTITLE": "song",
